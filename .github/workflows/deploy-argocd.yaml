@@ -1,0 +1,110 @@
+name: Deploy ArgoCD to EKS
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'argocd/**'
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy-argocd:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update kubeconfig for EKS cluster
+      run: |
+        aws eks update-kubeconfig \
+          --region ${{ env.AWS_REGION }} \
+          --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+    - name: Create ArgoCD namespace
+      run: kubectl apply -f argocd/namespace.yaml
+
+    - name: Create ArgoCD admin secret
+      run: |
+        kubectl create secret generic argocd-secret \
+          --namespace=argocd \
+          --from-literal=admin.username="${{ secrets.ARGOCD_ADMIN_USERNAME }}" \
+          --from-literal=admin.password="${{ secrets.ARGOCD_ADMIN_PASSWORD }}" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Deploy ArgoCD RBAC
+      run: kubectl apply -f argocd/rbac.yaml
+
+    - name: Deploy Redis PVC
+      run: |
+        echo "Creating Redis Persistent Volume Claim..."
+        kubectl apply -f argocd/redis-pvc.yaml
+        
+        echo "Waiting for PVC to be bound..."
+        timeout 60s bash -c 'while [[ $(kubectl get pvc argocd-redis-pvc -n argocd -o jsonpath="{.status.phase}") != "Bound" ]]; do sleep 5; done' || true
+
+    - name: Deploy Redis
+      run: kubectl apply -f argocd/redis.yaml
+
+    - name: Deploy ArgoCD Server
+      run: |
+        kubectl apply -f argocd/deployment.yaml
+        kubectl apply -f argocd/service.yaml
+        kubectl apply -f argocd/ingress.yaml
+
+    - name: Wait for Redis to be ready
+      run: |
+        echo "Waiting for Redis deployment to be available..."
+        kubectl wait --for=condition=available deployment/argocd-redis -n argocd --timeout=300s
+
+    - name: Wait for ArgoCD Server to be ready
+      run: |
+        echo "Waiting for ArgoCD Server deployment to be available..."
+        kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=600s
+
+    - name: Verify deployment status
+      run: |
+        echo "=== Deployment Status ==="
+        kubectl get deployments -n argocd
+        
+        echo ""
+        echo "=== Pods Status ==="
+        kubectl get pods -n argocd
+        
+        echo ""
+        echo "=== PVC Status ==="
+        kubectl get pvc -n argocd
+        
+        echo ""
+        echo "=== Service Status ==="
+        kubectl get svc -n argocd
+        
+        echo ""
+        echo "=== Ingress Status ==="
+        kubectl get ingress -n argocd
+
+    - name: Get ArgoCD access information
+      run: |
+        ALB_HOSTNAME=$(kubectl get ingress argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Still provisioning...")
+        
+        echo "🎉 ArgoCD Deployment Completed Successfully!"
+        echo ""
+        echo "🔗 Access Information:"
+        echo "   HTTP URL: http://$ALB_HOSTNAME"
+        echo "   Username: ${{ secrets.ARGOCD_ADMIN_USERNAME }}"
+        echo "   Password: ******** (check GitHub Secrets)"
+        echo ""
+        echo "📝 Note: Using HTTP without TLS certificate"
+        echo "   For production, consider adding ACM certificate"
+        echo ""
+        echo "📊 To check deployment status manually, run:"
+        echo "   kubectl get all -n argocd"
