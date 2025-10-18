@@ -18,7 +18,7 @@ spec:
       serviceAccountName: argocd-server
       containers:
       - name: argocd-server
-        image: argoproj/argocd:v2.8.4
+        image: argoproj/argocd:latest
         ports:
         - containerPort: 8080
           name: http
