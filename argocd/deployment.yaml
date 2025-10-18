@@ -6,7 +6,7 @@ metadata:
   labels:
     app: argocd-server
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: argocd-server
@@ -45,7 +45,7 @@ spec:
         resources:
           requests:
             memory: "256Mi"
-            cpu: "100m"
+            cpu: "200m"
           limits:
             memory: "512Mi"
             cpu: "500m"

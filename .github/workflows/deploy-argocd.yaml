@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'argocd/**'
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 env:
   AWS_REGION: 'us-east-1'
@@ -48,12 +48,37 @@ jobs:
       run: |
         echo "Creating Redis Persistent Volume Claim..."
         kubectl apply -f argocd/redis-pvc.yaml
-        
-        echo "Waiting for PVC to be bound..."
-        timeout 60s bash -c 'while [[ $(kubectl get pvc argocd-redis-pvc -n argocd -o jsonpath="{.status.phase}") != "Bound" ]]; do sleep 5; done' || true
+        sleep 10
+
+    - name: Check PVC status
+      run: |
+        echo "=== PVC Status ==="
+        kubectl get pvc -n argocd -o wide
+        echo ""
+        echo "=== PV Status ==="
+        kubectl get pv -o wide
+        echo ""
+        echo "=== Storage Classes ==="
+        kubectl get storageclass -o wide
 
     - name: Deploy Redis
       run: kubectl apply -f argocd/redis.yaml
+
+    - name: Wait for Redis to be ready
+      run: |
+        echo "Waiting for Redis deployment to be available..."
+        kubectl wait --for=condition=available deployment/argocd-redis -n argocd --timeout=180s
+
+    - name: Check Redis status
+      run: |
+        echo "=== Redis Deployment Status ==="
+        kubectl get deployment argocd-redis -n argocd -o wide
+        echo ""
+        echo "=== Redis Pods ==="
+        kubectl get pods -n argocd -l app=argocd-redis
+        echo ""
+        echo "=== Redis Pod Logs ==="
+        kubectl logs -n argocd -l app=argocd-redis --tail=50
 
     - name: Deploy ArgoCD Server
       run: |
@@ -61,50 +86,77 @@ jobs:
         kubectl apply -f argocd/service.yaml
         kubectl apply -f argocd/ingress.yaml
 
-    - name: Wait for Redis to be ready
+    - name: Check ArgoCD deployment status
       run: |
-        echo "Waiting for Redis deployment to be available..."
-        kubectl wait --for=condition=available deployment/argocd-redis -n argocd --timeout=300s
+        echo "=== ArgoCD Deployment Status ==="
+        kubectl get deployment argocd-server -n argocd -o wide
+        echo ""
+        echo "=== ArgoCD Pods ==="
+        kubectl get pods -n argocd -l app=argocd-server
+        echo ""
+        echo "=== ArgoCD Pod Details ==="
+        kubectl describe pods -n argocd -l app=argocd-server
 
-    - name: Wait for ArgoCD Server to be ready
+    - name: Check ArgoCD pod logs for errors
+      run: |
+        echo "=== ArgoCD Pod Logs (last 50 lines) ==="
+        kubectl logs -n argocd -l app=argocd-server --tail=50 || echo "No logs available yet"
+
+    - name: Wait for ArgoCD Server to be ready (with retry)
       run: |
         echo "Waiting for ArgoCD Server deployment to be available..."
-        kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=600s
+        # 使用重试机制
+        for i in {1..30}; do
+          if kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=30s 2>/dev/null; then
+            echo "✅ ArgoCD Server is ready!"
+            break
+          else
+            echo "⏳ ArgoCD Server not ready yet... Attempt $i/30"
+            sleep 10
+          fi
+        done
+        
+        # 最终检查
+        if kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=30s 2>/dev/null; then
+          echo "✅ ArgoCD Server deployment completed successfully!"
+        else
+          echo "❌ ArgoCD Server deployment timeout after 300 seconds"
+          echo "=== Final Deployment Status ==="
+          kubectl get deployment argocd-server -n argocd -o yaml
+          echo "=== Final Pod Status ==="
+          kubectl get pods -n argocd -l app=argocd-server -o wide
+          echo "=== Pod Events ==="
+          kubectl describe pods -n argocd -l app=argocd-server | grep -A 20 Events
+          exit 1
+        fi
 
-    - name: Verify deployment status
+    - name: Verify all components
       run: |
-        echo "=== Deployment Status ==="
+        echo "=== All Deployments ==="
         kubectl get deployments -n argocd
         
         echo ""
-        echo "=== Pods Status ==="
-        kubectl get pods -n argocd
+        echo "=== All Pods ==="
+        kubectl get pods -n argocd -o wide
         
         echo ""
-        echo "=== PVC Status ==="
+        echo "=== All Services ==="
+        kubectl get services -n argocd
+        
+        echo ""
+        echo "=== All PVCs ==="
         kubectl get pvc -n argocd
-        
-        echo ""
-        echo "=== Service Status ==="
-        kubectl get svc -n argocd
-        
-        echo ""
-        echo "=== Ingress Status ==="
-        kubectl get ingress -n argocd
 
     - name: Get ArgoCD access information
       run: |
         ALB_HOSTNAME=$(kubectl get ingress argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Still provisioning...")
         
-        echo "🎉 ArgoCD Deployment Completed Successfully!"
+        echo "🎉 ArgoCD Deployment Information:"
         echo ""
         echo "🔗 Access Information:"
         echo "   HTTP URL: http://$ALB_HOSTNAME"
         echo "   Username: ${{ secrets.ARGOCD_ADMIN_USERNAME }}"
-        echo "   Password: ******** (check GitHub Secrets)"
         echo ""
-        echo "📝 Note: Using HTTP without TLS certificate"
-        echo "   For production, consider adding ACM certificate"
-        echo ""
-        echo "📊 To check deployment status manually, run:"
-        echo "   kubectl get all -n argocd"
+        echo "📊 To check logs manually:"
+        echo "   kubectl logs -n argocd -l app=argocd-server"
+        echo "   kubectl describe pod -n argocd -l app=argocd-server"
