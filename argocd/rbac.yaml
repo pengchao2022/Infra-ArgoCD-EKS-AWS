@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: argocd-deployer
+  name: argocd-server  # 改为 argocd-server
   namespace: argocd
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: argocd-deployer
+  name: argocd-server  # 保持一致
 rules:
 - apiGroups: ["*"]
   resources: ["*"]
@@ -18,12 +18,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: argocd-deployer
+  name: argocd-server  # 保持一致
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: argocd-deployer
+  name: argocd-server
 subjects:
 - kind: ServiceAccount
-  name: argocd-deployer
+  name: argocd-server  # 改为 argocd-server
   namespace: argocd
