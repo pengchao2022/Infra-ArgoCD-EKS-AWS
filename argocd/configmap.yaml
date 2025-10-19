@@ -7,11 +7,6 @@ metadata:
     app.kubernetes.io/name: argocd-cm
     app.kubernetes.io/part-of: argocd
 data:
-  repository.credentials: |
-    - url: https://github.com/your-org/
-      passwordSecret:
-        name: github-token
-        key: token
-      usernameSecret:
-        name: github-token
-        key: username
+  # 核心配置
+  application.instanceLabelKey: argocd.argoproj.io/instance
+  admin.enabled: "true"
