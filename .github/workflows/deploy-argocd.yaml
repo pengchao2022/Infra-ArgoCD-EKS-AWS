@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'argocd/**'
+      - '.github/workflows/**' # 工作流文件本身
   workflow_dispatch:
 
 env:
@@ -43,6 +44,15 @@ jobs:
 
     - name: Deploy ArgoCD RBAC
       run: kubectl apply -f argocd/rbac.yaml
+
+    - name: Install ArgoCD CRDs
+      run: |
+        echo "Installing ArgoCD Custom Resource Definitions..."
+        kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/crds/application-crd.yaml
+        kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/crds/appproject-crd.yaml
+        
+        echo "Verifying CRD installation..."
+        kubectl get crd | grep argoproj
 
     
     - name: Deploy ArgoCD ConfigMap
