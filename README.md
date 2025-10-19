@@ -45,4 +45,5 @@ argocd account update-password
 ![login](argocd1.png)
 
 - ArgoCD Dashboard
+
 ![dashboard](argocd2.png)
