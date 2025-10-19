@@ -33,6 +33,12 @@ jobs:
 
     - name: Create ArgoCD namespace
       run: kubectl apply -f argocd/namespace.yaml
+    
+
+    - name: Delete existing ArgoCD admin secret (if exists)
+      run: |
+        kubectl delete secret argocd-secret -n argocd || echo "Secret not found, skipping deletion"
+    
 
     - name: Create ArgoCD admin secret
       run: |
