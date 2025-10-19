@@ -34,12 +34,13 @@ jobs:
     - name: Create ArgoCD namespace
       run: kubectl apply -f argocd/namespace.yaml
 
-    - name: Clean up existing ArgoCD resources
+    - name: Create ArgoCD secret first
       run: |
-        # 删除可能存在的旧 secret
-        kubectl delete secret argocd-secret -n argocd --ignore-not-found=true
-        kubectl delete secret argocd-initial-admin-secret -n argocd --ignore-not-found=true
-        echo "Cleaned up existing secrets"
+        echo "Creating argocd-secret..."
+        kubectl apply -f argocd/argocd-secret.yaml
+        
+        echo "Verifying secret creation..."
+        kubectl get secret argocd-secret -n argocd
 
     - name: Deploy ArgoCD RBAC
       run: kubectl apply -f argocd/rbac.yaml
@@ -111,6 +112,11 @@ jobs:
           fi
         done
 
+    - name: Check ArgoCD server logs
+      run: |
+        echo "=== ArgoCD Server Logs ==="
+        kubectl logs -n argocd -l app=argocd-server --tail=20
+
     - name: Get initial admin password
       run: |
         echo "=== Getting initial admin password ==="
@@ -137,32 +143,14 @@ jobs:
           echo "Trying alternative method..."
           
           # 如果上面的方法失败，尝试直接从 pod 获取
-          kubectl exec -n argocd deployment/argocd-server -- argocd admin initial-password -n argocd || echo "Alternative method also failed"
+          kubectl exec -n argocd deployment/argocd-server -- argocd admin initial-password -n argocd 2>/dev/null || echo "Please check ArgoCD server logs for issues"
         fi
-
-    - name: Install ArgoCD CLI for password reset
-      run: |
-        echo "Installing ArgoCD CLI..."
-        curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-        sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
-        rm argocd-linux-amd64
-        echo "ArgoCD CLI version:"
-        argocd version --client
-
-    - name: Change admin password (optional)
-      if: false  # 设置为 false，不自动修改密码，手动操作
-      run: |
-        echo "=== This step is disabled ==="
-        echo "To change password manually, run:"
-        echo "argocd login <argocd-server-url> --username admin --password <initial-password>"
-        echo "argocd account update-password"
 
     - name: Get ArgoCD access information
       run: |
         # 获取服务信息
         ALB_HOSTNAME=$(kubectl get ingress argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Still provisioning...")
         CLUSTER_IP=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.clusterIP}')
-        NODE_PORT=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
         
         # 获取初始密码
         INITIAL_PASSWORD=$(kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "Run: kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d")
@@ -179,24 +167,22 @@ jobs:
           echo "   Web UI: https://$ALB_HOSTNAME"
         fi
         echo "   Cluster IP: https://$CLUSTER_IP:443"
-        if [ "$NODE_PORT" != "N/A" ]; then
-          echo "   Node Port: https://<node-ip>:$NODE_PORT"
-        fi
         echo ""
         echo "📝 To change password manually:"
-        echo "   1. Login: argocd login <server-url> --username admin --password '$INITIAL_PASSWORD'"
-        echo "   2. Change password: argocd account update-password"
+        echo "   1. Install ArgoCD CLI: curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 && sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd"
+        echo "   2. Login: argocd login <server-url> --username admin --password '$INITIAL_PASSWORD' --insecure"
+        echo "   3. Change password: argocd account update-password"
         echo ""
         echo "🔧 Troubleshooting commands:"
         echo "   kubectl get pods -n argocd"
         echo "   kubectl logs -n argocd -l app=argocd-server"
         echo "   kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d"
 
-    - name: Verify deployment
+    - name: Verify final deployment status
       run: |
         echo "=== Final Deployment Status ==="
         kubectl get deployments,services,pods -n argocd
         
         echo ""
-        echo "=== ArgoCD Server Logs (last few lines) ==="
-        kubectl logs -n argocd -l app=argocd-server --tail=20
+        echo "=== Secrets in argocd namespace ==="
+        kubectl get secrets -n argocd
