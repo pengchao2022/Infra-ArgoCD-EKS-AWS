@@ -54,7 +54,6 @@ jobs:
         echo "Verifying CRD installation..."
         kubectl get crd | grep argoproj
 
-    
     - name: Deploy ArgoCD ConfigMap
       run: kubectl apply -f argocd/configmap.yaml
 
