@@ -40,12 +40,20 @@ jobs:
         kubectl delete secret argocd-secret -n argocd || echo "Secret not found, skipping deletion"
     
 
-    - name: Create ArgoCD admin secret
+    - name: Create ArgoCD secret with bcrypt password
       run: |
+        # 安装 bcrypt 工具
+        sudo apt-get update
+        sudo apt-get install -y apache2-utils
+        
+        # 生成 bcrypt 加密密码
+        BCRYPT_PASSWORD=$(htpasswd -bnBC 10 "" "${{ secrets.ARGOCD_ADMIN_PASSWORD }}" | tr -d ':\n' | sed 's/$2y/$2a/')
+        
         kubectl create secret generic argocd-secret \
           --namespace=argocd \
           --from-literal=admin.username="${{ secrets.ARGOCD_ADMIN_USERNAME }}" \
-          --from-literal=admin.password="${{ secrets.ARGOCD_ADMIN_PASSWORD }}" \
+          --from-literal=admin.password="$BCRYPT_PASSWORD" \
+          --from-literal=admin.passwordMtime="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           --dry-run=client -o yaml | kubectl apply -f -
 
     - name: Deploy ArgoCD RBAC
