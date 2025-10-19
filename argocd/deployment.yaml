@@ -29,22 +29,29 @@ spec:
           value: "300"
         - name: ARGOCD_REDIS_ADDRESS
           value: "argocd-redis:6379"
-        # 不需要设置REDIS_PASSWORD环境变量
+        # 添加启动命令
+        command: ["argocd-server"]
+        args:
+        - "--insecure"
+        - "--staticassets"
+        - "/shared/app"
+        - "--redis"
+        - "argocd-redis:6379"
         readinessProbe:
           httpGet:
             path: /healthz
             port: 8080
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30  # 增加到30秒，给启动更多时间
           periodSeconds: 10
         livenessProbe:
           httpGet:
             path: /healthz
             port: 8080
-          initialDelaySeconds: 10
+          initialDelaySeconds: 60  # 增加到60秒
           periodSeconds: 30
         resources:
           requests:
-            memory: "256Mi"
+            memory: "256Mi"  
             cpu: "200m"
           limits:
             memory: "512Mi"
