@@ -44,6 +44,10 @@ jobs:
     - name: Deploy ArgoCD RBAC
       run: kubectl apply -f argocd/rbac.yaml
 
+    
+    - name: Deploy ArgoCD ConfigMap
+      run: kubectl apply -f argocd/configmap.yaml
+
     - name: Deploy Redis PVC
       run: |
         echo "Creating Redis Persistent Volume Claim..."
